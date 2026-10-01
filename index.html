@@ -1520,7 +1520,7 @@
 
   <footer>
     SAP values checked against <a href="https://soapcalc.net/oil-list">SoapCalc's oil list</a>, <a href="https://www.thesoapkitchen.co.uk/guide-to-sap-values/">The Soap Kitchen's chart</a> and the international Codex standards for edible oils and fats; each sits at or near the low end of its published range, and the superfat minimums (5% for bars, 2% for liquid soap) cover the rest. Fatty acid profiles are typical values and vary by crop, region and refining.
-    <span id="app-version" style="display:block;margin-top:6px">Calculator version 1.0.1</span>
+    <span id="app-version" style="display:block;margin-top:6px">Calculator version 1.0.2</span>
   </footer>
 </div>
 
@@ -2947,7 +2947,7 @@
     /* The one version number for both the web page and the app. The build
        script reads it from here and gives the app the same versionName, so
        bump it for every change: 1.0.1, 1.0.2 ... */
-    var APP_VERSION = "1.0.1";
+    var APP_VERSION = "1.0.2";
     /* true inside the Android app, where the app shell provides printing */
     var IN_APP = !!window.SoapApp;
     if (el("app-version")) { el("app-version").textContent = "Calculator version " + APP_VERSION; }
@@ -5234,5 +5234,236 @@
   })();
 </script>
 
+<script>
+/*
+ * "A new version is ready": the update check shared by the Bee Guy apps (the
+ * Bloom Calendar and the Soap Calculator; Apiary Manager has the same thing in
+ * its own React code). Plain JavaScript with no imports, so it works in a page
+ * built by Vite and in a page with no build step at all. The same file is in
+ * both projects; keep them the same.
+ *
+ * Every publish puts version.json on the app's website: { version, apk, web,
+ * notes }. Shortly after opening, and whenever the app comes back to the front
+ * (at most every 6 hours), the page compares that with its own version and, if
+ * it's newer, shows a popup with what's new and "Update now" / "Later".
+ *  - Android app: Update now downloads the new app inside the app and opens
+ *    Android's own "Update this app?" screen (records kept). The first time,
+ *    Android must allow the app to install its updates: the app opens that
+ *    switch and carries on when the beekeeper comes back. Needs the app's
+ *    native helper to have downloadUpdate, installPermission,
+ *    openInstallSettings and installUpdate (see BeeNativePlugin.java).
+ *  - Website: clears the offline copy and reloads.
+ *  - A saved copy of the page opened from a folder: opens the website.
+ *
+ *   BeeUpdates.init({ name, site, apk, version, native, onResume, cachePrefix, key, colors })
+ *   BeeUpdates.mountPanel(element)   "This is version 1.0.5." + Check for updates
+ */
+(function () {
+  var EVERY_MS = 6 * 60 * 60 * 1000;   // automatic checks at most every 6 hours
+  var LATER_MS = 24 * 60 * 60 * 1000;  // "Later" waits a day before asking again
+  var o = null;
+
+  function read(k) { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch (e) { return null; } }
+  function write(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private window */ } }
+
+  // "1.0.10" > "1.0.9"; also works for date versions like "2026.09.30.2012".
+  function newer(a, b) {
+    var x = String(a || "").split("."), y = String(b || "").split(".");
+    if (!/^\d+(\.\d+)*$/.test(a || "") || !/^\d+(\.\d+)*$/.test(b || "")) { return false; }
+    for (var i = 0; i < Math.max(x.length, y.length); i++) {
+      var d = (Number(x[i]) || 0) - (Number(y[i]) || 0);
+      if (d) { return d > 0; }
+    }
+    return false;
+  }
+
+  function current() { return Promise.resolve().then(o.version).catch(function () { return ""; }); }
+
+  // Resolves { latest, current, upToDate } or null; rejects only when forced and offline.
+  function check(force) {
+    return current().then(function (cur) {
+      if (!cur) { return null; }
+      if (!force) {
+        var last = read(o.key + "_checked");
+        if (last && Date.now() - last < EVERY_MS) { return null; }
+      }
+      return fetch(o.site + "version.json?t=" + Date.now(), { cache: "no-store" })
+        .then(function (r) { if (!r.ok) { throw new Error("HTTP " + r.status); } return r.json(); })
+        .then(function (latest) {
+          write(o.key + "_checked", Date.now());
+          if (!newer(latest.version, cur)) { return force ? { latest: latest, current: cur, upToDate: true } : null; }
+          if (!force) {
+            var later = read(o.key + "_later");
+            if (later && later.version === latest.version && Date.now() < later.until) { return null; }
+          }
+          return { latest: latest, current: cur };
+        }, function (e) { if (force) { throw e; } return null; });
+    });
+  }
+
+  function nextResume() {
+    return new Promise(function (resolve) { var stop = o.onResume(function () { stop(); resolve(); }); });
+  }
+
+  // Starts the update; calls say(text) with what's happening.
+  function start(latest, say) {
+    var nat = o.native;
+    if (nat) {
+      return nat.installPermission().then(function (p) {
+        if (p.allowed) { return true; }
+        say("First, Android needs your OK for " + o.name + " to install its own updates (only once). Turn on Allow permission, then come back.");
+        return nat.openInstallSettings().then(nextResume).then(function () { return nat.installPermission(); })
+          .then(function (p2) { return !!p2.allowed; });
+      }).then(function (ok) {
+        if (!ok) { say("The update needs that permission. Tap Update now again when you're ready, and turn on Allow permission."); return; }
+        var h = nat.addListener("updateFailed", function () {
+          Promise.resolve(h).then(function (x) { x.remove(); });
+          say("The download didn't finish (no signal?). Try again later, or open this link in your browser: " + (latest.apk || o.apk));
+        });
+        return nat.downloadUpdate({ url: latest.apk || o.apk }).then(function () {
+          say("Downloading the new version (see the notification at the top). Keep " + o.name + " open: in a moment the phone asks \"Update this app?\". Tap Update. If Play Protect asks, tap Scan app, then Install. Everything saved in the app is kept.", true);
+        });
+      });
+    }
+    if (/^https?:$/.test(location.protocol)) {
+      var clear = window.caches ? caches.keys().then(function (ks) {
+        return Promise.all(ks.filter(function (k) { return k.indexOf(o.cachePrefix) === 0; }).map(function (k) { return caches.delete(k); }));
+      }) : Promise.resolve();
+      return clear.then(function () {
+        return navigator.serviceWorker && navigator.serviceWorker.getRegistration().then(function (r) { return r && r.update(); });
+      }).catch(function () {}).then(function () { location.reload(); });
+    }
+    window.open(latest.web || o.site, "_blank");
+    say("The newest version opened in a new tab. This saved copy of the page can't update itself; use the website from now on, or save the new page over this one.");
+    return Promise.resolve();
+  }
+
+  function el(tag, css, text) {
+    var n = document.createElement(tag);
+    if (css) { n.style.cssText = css; }
+    if (text != null) { n.textContent = text; }
+    return n;
+  }
+
+  function button(label, primary, onClick) {
+    var c = o.colors;
+    var b = el("button", "border:" + (primary ? "none" : "1px solid " + c.rule) + ";border-radius:10px;padding:9px 16px;font-weight:700;font-size:14px;line-height:1.2;font-family:inherit;cursor:pointer;" +
+      (primary ? "background:" + c.accent + ";color:" + c.accentText : "background:transparent;color:" + c.muted), label);
+    b.type = "button";
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  var open = null;
+  function show(offer) {
+    if (open) { return; }
+    var c = o.colors, latest = offer.latest;
+    var shade = el("div", "position:fixed;inset:0;z-index:2147483000;background:rgba(40,28,8,0.45);display:flex;align-items:center;justify-content:center;padding:20px;");
+    var box = el("div", "background:" + c.bg + ";color:" + c.text + ";border-radius:16px;padding:22px 22px 18px;max-width:380px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,0.3);font:15px/1.5 " + c.font + ";max-height:85vh;overflow:auto;");
+    box.setAttribute("role", "dialog");
+    box.setAttribute("aria-label", "Update available");
+    box.appendChild(el("div", "font:800 20px/1.25 " + (c.titleFont || c.font) + ";color:" + c.title + ";margin-bottom:6px", "🐝 A new version is ready"));
+    box.appendChild(el("div", "font-size:13px;color:" + c.muted + ";margin-bottom:12px", o.name + " " + latest.version + " · you have " + offer.current));
+    var body = el("div");
+    if (latest.notes && latest.notes.length) {
+      body.appendChild(el("div", "font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px", "What's new"));
+      var ul = el("ul", "margin:0 0 12px;padding-left:18px;font-size:14px");
+      latest.notes.forEach(function (n) { ul.appendChild(el("li", "margin-bottom:4px", n)); });
+      body.appendChild(ul);
+    }
+    body.appendChild(el("div", "font-size:14px;margin-bottom:14px", "Would you like to update now? " + (o.native ? "Everything saved in the app is kept." : "Your records stay in this browser.")));
+    box.appendChild(body);
+    var row = el("div", "display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap");
+    function close() { shade.remove(); open = null; }
+    function say(text, downloading) {
+      body.innerHTML = "";
+      body.appendChild(el("div", "font-size:14px;margin-bottom:14px", text));
+      row.innerHTML = "";
+      if (downloading && o.native) { row.appendChild(button("Install", false, function () { o.native.installUpdate().catch(function () {}); })); }
+      row.appendChild(button("OK", true, close));
+    }
+    var now = button("Update now", true, function () {
+      now.disabled = true; now.textContent = "Starting…";
+      start(latest, say).catch(function () {
+        say("Couldn't start the update. Open this link to get it: " + (o.native ? latest.apk || o.apk : latest.web || o.site));
+      });
+    });
+    row.appendChild(button("Later", false, function () { write(o.key + "_later", { version: latest.version, until: Date.now() + LATER_MS }); close(); }));
+    row.appendChild(now);
+    box.appendChild(row);
+    shade.appendChild(box);
+    document.body.appendChild(shade);
+    open = { close: close };
+  }
+
+  function look() {
+    if (o.blocked && o.blocked()) { return; }
+    check(false).then(function (r) { if (r && !r.upToDate) { show(r); } }).catch(function () {});
+  }
+
+  window.BeeUpdates = {
+    init: function (opts) {
+      o = opts;
+      o.colors = o.colors || {};
+      setTimeout(look, 3000);
+      if (o.onResume) { o.onResume(look); }
+    },
+    // Closes the popup if it's open (for the Android back button). Returns true if it was.
+    close: function () { if (open) { open.close(); return true; } return false; },
+    mountPanel: function (host) {
+      if (!host || !o) { return; }
+      var c = o.colors;
+      var line = el("span", "", "");
+      var status = el("span", "display:block;margin-top:6px");
+      current().then(function (v) {
+        line.textContent = v ? "This is version " + v + ". It checks for a newer one by itself when it opens. " : "Version not known (a test copy). ";
+      });
+      var b = el("button", "border:1px solid " + c.rule + ";background:transparent;color:" + c.title + ";border-radius:8px;padding:5px 12px;font-weight:600;font-size:13px;line-height:1.2;font-family:inherit;cursor:pointer;", "Check for updates");
+      b.type = "button";
+      b.addEventListener("click", function () {
+        status.textContent = "Checking…";
+        check(true).then(function (r) {
+          if (!r) { status.textContent = "This copy doesn't know its version, so it can't check."; }
+          else if (r.upToDate) { status.textContent = "You have the newest version ✅"; }
+          else { status.textContent = ""; show(r); }
+        }, function () { status.textContent = "Couldn't check: no internet connection right now."; });
+      });
+      host.innerHTML = "";
+      host.appendChild(line);
+      host.appendChild(b);
+      host.appendChild(status);
+    },
+  };
+})();
+
+(function () {
+  var cap = window.capacitorExports;
+  var native = !!(cap && cap.Capacitor && cap.Capacitor.isNativePlatform());
+  var App = native ? cap.registerPlugin("App") : null;
+  window.BeeUpdates.init({
+    name: "Soap Calculator",
+    site: "https://papaasot.github.io/bee-guy-soap-calculator/",
+    apk: "https://github.com/PaPaASOT/bee-guy-soap-calculator/releases/download/app/BeeGuySoapCalculator.apk",
+    version: function () {
+      if (native) { return App.getInfo().then(function (i) { return i.version; }); }
+      var t = (document.getElementById("app-version") || {}).textContent || "";
+      return (t.match(/(\d+(?:\.\d+)+)/) || [])[1] || "";
+    },
+    native: native ? cap.registerPlugin("SoapNative") : null,
+    onResume: function (fn) {
+      if (native) { var h = App.addListener("resume", fn); return function () { Promise.resolve(h).then(function (x) { x.remove(); }); }; }
+      var vis = function () { if (document.visibilityState === "visible") { fn(); } };
+      document.addEventListener("visibilitychange", vis);
+      return function () { document.removeEventListener("visibilitychange", vis); };
+    },
+    cachePrefix: "beeguy-soap-",
+    key: "soapcalc_update",
+    colors: { bg: "#fffdf8", text: "#2b2113", title: "#8a4f0a", muted: "#786244", accent: "#8a4f0a", accentText: "#fffdf8", rule: "#ddcba4",
+      font: "'Source Sans 3', system-ui, sans-serif", titleFont: "'Bodoni Moda', Georgia, serif" }
+  });
+  var ver = document.getElementById("app-version");
+  if (ver) { var host = document.createElement("span"); host.style.cssText = "display:block;margin-top:6px"; ver.insertAdjacentElement("afterend", host); window.BeeUpdates.mountPanel(host); }
+})();
+</script>
 <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.register("sw.js").catch(function () {}); }</script></body>
 </html>

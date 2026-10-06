@@ -1520,7 +1520,7 @@
 
   <footer>
     SAP values checked against <a href="https://soapcalc.net/oil-list">SoapCalc's oil list</a>, <a href="https://www.thesoapkitchen.co.uk/guide-to-sap-values/">The Soap Kitchen's chart</a> and the international Codex standards for edible oils and fats; each sits at or near the low end of its published range, and the superfat minimums (5% for bars, 2% for liquid soap) cover the rest. Fatty acid profiles are typical values and vary by crop, region and refining.
-    <span id="app-version" style="display:block;margin-top:6px">Calculator version 1.0.2</span>
+    <span id="app-version" style="display:block;margin-top:6px">Calculator version 1.0.3</span>
   </footer>
 </div>
 
@@ -2947,7 +2947,7 @@
     /* The one version number for both the web page and the app. The build
        script reads it from here and gives the app the same versionName, so
        bump it for every change: 1.0.1, 1.0.2 ... */
-    var APP_VERSION = "1.0.2";
+    var APP_VERSION = "1.0.3";
     /* true inside the Android app, where the app shell provides printing */
     var IN_APP = !!window.SoapApp;
     if (el("app-version")) { el("app-version").textContent = "Calculator version " + APP_VERSION; }
@@ -5237,7 +5237,7 @@
 <script>
 /*
  * "A new version is ready": the update check shared by the Bee Guy apps (the
- * Bloom Calendar and the Soap Calculator; Apiary Manager has the same thing in
+ * Bloom Calendar and the Soap Calculator; HiveMind has the same thing in
  * its own React code). Plain JavaScript with no imports, so it works in a page
  * built by Vite and in a page with no build step at all. The same file is in
  * both projects; keep them the same.

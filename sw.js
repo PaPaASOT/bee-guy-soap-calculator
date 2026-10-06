@@ -1,5 +1,5 @@
 /* Keeps a copy of the Bee Guy Soap Calculator on the phone so it opens with no signal. */
-const CACHE = "beeguy-soap-e43bf8f6d790";
+const CACHE = "beeguy-soap-ac46815f9fe2";
 const FILES = ["./", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {

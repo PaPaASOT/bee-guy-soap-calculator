@@ -1,9 +1,9 @@
 {
   "name": "Soap Calculator",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "apk": "https://github.com/PaPaASOT/bee-guy-soap-calculator/releases/download/app/BeeGuySoapCalculator.apk",
   "web": "https://papaasot.github.io/bee-guy-soap-calculator/",
   "notes": [
-    "The app now tells you when there's a new version, and asks if you'd like to update now."
+    "When an update downloads, the phone's notification now says Soap Calculator (it said Apiary Manager)."
   ]
 }
